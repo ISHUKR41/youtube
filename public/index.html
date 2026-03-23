@@ -3,22 +3,43 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>🎵 Hook Player - Play Songs From The Best Part</title>
-    <meta name="description" content="Paste YouTube song or playlist URLs and listen to the best hook/chorus part with random durations">
-    <meta name="theme-color" content="#8b5cf6">
-    <meta property="og:title" content="🎵 Hook Player - Play Songs From The Best Part">
-    <meta property="og:description" content="Experience songs from their catchiest moments with adaptive quality">
+    <title>Hook Player — Play the Best Part of Any Song</title>
+    <meta name="description" content="Paste any YouTube song or playlist URL and instantly hear the hook — the best part of the song. Random play durations keep it fresh every time.">
+    <meta name="keywords" content="hook player, youtube song player, chorus player, song hook, best part of song, youtube playlist player, music hook, youtube music">
+    <meta name="theme-color" content="#7c3aed">
+    <meta name="author" content="Hook Player">
+    <meta name="robots" content="index, follow">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎵</text></svg>">
+
+    <!-- Open Graph -->
+    <meta property="og:title" content="Hook Player — Play the Best Part of Any Song">
+    <meta property="og:description" content="Paste YouTube URLs and listen to song hooks with random durations">
     <meta property="og:type" content="website">
+
+    <!-- Twitter -->
+    <meta name="twitter:card" content="summary">
+    <meta name="twitter:title" content="Hook Player — Play the Best Part of Any Song">
+    <meta name="twitter:description" content="Paste YouTube URLs and listen to song hooks with random durations">
+
+    <!-- Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+    <!-- Styles -->
     <link rel="stylesheet" href="/css/styles.css">
 </head>
 <body>
-    <!-- Animated Background Particles -->
+    <!-- Network Quality Badge -->
+    <div class="network-badge" id="networkBadge">
+        <div class="network-dot" id="networkDot"></div>
+        <span id="networkText">Checking...</span>
+    </div>
+
+    <!-- Animated Background -->
     <div class="bg-particles" id="bgParticles"></div>
-    
-    <!-- Main Container -->
+
+    <!-- App Container -->
     <div class="app-container">
         <!-- Header -->
         <header class="header">
@@ -32,11 +53,43 @@
                     <p class="tagline">Play the best part of any song</p>
                 </div>
             </div>
-            <div class="network-indicator" id="networkIndicator">
-                <span class="network-icon">📶</span>
-                <span class="network-quality" id="networkQuality">Detecting...</span>
-            </div>
         </header>
+
+        <!-- Feature Pills -->
+        <div class="feature-pills" id="featurePills">
+            <div class="feature-pill">
+                <span class="pill-icon">🎯</span>
+                <span>Hook Detection</span>
+            </div>
+            <div class="feature-pill">
+                <span class="pill-pct">50%</span>
+                <span>50–60s</span>
+            </div>
+            <div class="feature-pill">
+                <span class="pill-pct">10%</span>
+                <span>10–15s</span>
+            </div>
+            <div class="feature-pill">
+                <span class="pill-pct">10%</span>
+                <span>20–30s</span>
+            </div>
+            <div class="feature-pill">
+                <span class="pill-pct">10%</span>
+                <span>30–40s</span>
+            </div>
+            <div class="feature-pill">
+                <span class="pill-pct">10%</span>
+                <span>40–50s</span>
+            </div>
+            <div class="feature-pill">
+                <span class="pill-pct">10%</span>
+                <span>80–95s</span>
+            </div>
+            <div class="feature-pill">
+                <span class="pill-icon">📶</span>
+                <span>Adaptive Quality</span>
+            </div>
+        </div>
 
         <!-- URL Input Section -->
         <section class="input-section">
@@ -49,12 +102,13 @@
                     </div>
                 </div>
                 <div class="input-wrapper">
-                    <input 
-                        type="text" 
-                        id="urlInput" 
-                        class="url-input" 
+                    <input
+                        type="text"
+                        id="urlInput"
+                        class="url-input"
                         placeholder="https://youtube.com/watch?v=... or playlist URL"
                         autocomplete="off"
+                        spellcheck="false"
                     >
                     <button id="addButton" class="btn-add" title="Add to queue">
                         <span class="btn-icon">+</span>
@@ -64,6 +118,7 @@
                     <span class="hint">✅ Single videos</span>
                     <span class="hint">✅ Playlists</span>
                     <span class="hint">✅ Short URLs</span>
+                    <span class="hint">✅ YouTube Music</span>
                 </div>
             </div>
         </section>
@@ -71,20 +126,34 @@
         <!-- Player Section -->
         <section class="player-section" id="playerSection">
             <div class="player-card glass-card">
-                <!-- Now Playing Info -->
+                <!-- Now Playing Bar -->
                 <div class="now-playing-bar">
                     <div class="now-playing-pulse"></div>
-                    <span class="now-playing-text">NOW PLAYING</span>
+                    <span class="now-playing-text">Now Playing</span>
                     <div class="duration-badge" id="durationBadge">--s</div>
                 </div>
 
-                <!-- YouTube Player Container -->
+                <!-- YouTube Player -->
                 <div class="player-container">
                     <div id="youtubePlayer"></div>
                     <div class="player-overlay" id="playerOverlay">
                         <div class="play-icon-large">▶</div>
                         <p>Paste a YouTube URL to start</p>
                     </div>
+                </div>
+
+                <!-- Audio Visualizer -->
+                <div class="audio-visualizer" id="audioVisualizer">
+                    <div class="viz-bar"></div>
+                    <div class="viz-bar"></div>
+                    <div class="viz-bar"></div>
+                    <div class="viz-bar"></div>
+                    <div class="viz-bar"></div>
+                    <div class="viz-bar"></div>
+                    <div class="viz-bar"></div>
+                    <div class="viz-bar"></div>
+                    <div class="viz-bar"></div>
+                    <div class="viz-bar"></div>
                 </div>
 
                 <!-- Song Info -->
@@ -96,6 +165,9 @@
                         </span>
                         <span class="meta-item" id="playDuration">
                             <span class="meta-icon">⏱</span> Duration: --
+                        </span>
+                        <span class="meta-item" id="qualityInfo">
+                            <span class="meta-icon">📶</span> Quality: Auto
                         </span>
                     </div>
                 </div>
@@ -115,25 +187,25 @@
                 <!-- Controls -->
                 <div class="player-controls">
                     <button class="control-btn" id="prevBtn" title="Previous">
-                        <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+                        <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
                             <path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/>
                         </svg>
                     </button>
                     <button class="control-btn btn-play" id="playPauseBtn" title="Play/Pause">
-                        <svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor" id="playIcon">
+                        <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor" id="playIcon">
                             <path d="M8 5v14l11-7z"/>
                         </svg>
-                        <svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor" id="pauseIcon" style="display:none">
+                        <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor" id="pauseIcon" style="display:none">
                             <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>
                         </svg>
                     </button>
                     <button class="control-btn" id="nextBtn" title="Next">
-                        <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+                        <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
                             <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/>
                         </svg>
                     </button>
                     <button class="control-btn btn-shuffle" id="shuffleBtn" title="Shuffle">
-                        <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
                             <path d="M10.59 9.17L5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.33 9.41l-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13z"/>
                         </svg>
                     </button>
@@ -170,7 +242,7 @@
                 </div>
                 <div class="stat-card glass-card">
                     <div class="stat-value" id="totalTime">0:00</div>
-                    <div class="stat-label">Total Listen Time</div>
+                    <div class="stat-label">Listen Time</div>
                 </div>
                 <div class="stat-card glass-card">
                     <div class="stat-value" id="queueSize">0</div>
@@ -179,13 +251,38 @@
             </div>
         </section>
 
+        <!-- Keyboard Shortcuts -->
+        <section class="shortcuts-section">
+            <div class="shortcuts-card glass-card">
+                <div class="shortcuts-title">Keyboard Shortcuts</div>
+                <div class="shortcuts-grid">
+                    <div class="shortcut-item">
+                        <span class="shortcut-key">Space</span>
+                        <span>Play / Pause</span>
+                    </div>
+                    <div class="shortcut-item">
+                        <span class="shortcut-key">→</span>
+                        <span>Next</span>
+                    </div>
+                    <div class="shortcut-item">
+                        <span class="shortcut-key">←</span>
+                        <span>Previous</span>
+                    </div>
+                    <div class="shortcut-item">
+                        <span class="shortcut-key">S</span>
+                        <span>Shuffle</span>
+                    </div>
+                </div>
+            </div>
+        </section>
+
         <!-- Footer -->
         <footer class="footer">
-            <p>Hook Player &copy; 2026 | Built with ❤️ for music lovers</p>
+            <p>Hook Player &copy; 2026 &nbsp;|&nbsp; Built with ❤️ for music lovers</p>
         </footer>
     </div>
 
-    <!-- Toast Notification -->
+    <!-- Toast Container -->
     <div class="toast-container" id="toastContainer"></div>
 
     <!-- Scripts -->

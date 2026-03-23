@@ -1,5 +1,6 @@
 /* ============================================
    Utility Functions
+   Network detection, duration logic, particles
    ============================================ */
 
 const Utils = {
@@ -71,71 +72,81 @@ const Utils = {
 
     /**
      * Get random play duration based on weighted probability
-     * 50% → 50-60 seconds
-     * 10% → 10-15 seconds
-     * 10% → 20-30 seconds
-     * 10% → 30-40 seconds
-     * 10% → 40-50 seconds
-     * 10% → 80-95 seconds
+     * Updated ranges:
+     * 50% → 50–60 seconds (random within range)
+     * 10% → 10–15 seconds
+     * 10% → 20–30 seconds
+     * 10% → 30–40 seconds
+     * 10% → 40–50 seconds
+     * 10% → 80–95 seconds (1min 20s to 1min 35s)
      */
     getRandomDuration() {
         const rand = Math.random() * 100;
-
+        
         if (rand < 50) {
-            const duration = 50 + Math.floor(Math.random() * 11); // 50-60
-            return { duration, label: `${duration}s` };
+            const dur = this._randomInt(50, 60);
+            return { duration: dur, label: `${dur}s` };
         }
         if (rand < 60) {
-            const duration = 10 + Math.floor(Math.random() * 6); // 10-15
-            return { duration, label: `${duration}s` };
+            const dur = this._randomInt(10, 15);
+            return { duration: dur, label: `${dur}s` };
         }
         if (rand < 70) {
-            const duration = 20 + Math.floor(Math.random() * 11); // 20-30
-            return { duration, label: `${duration}s` };
+            const dur = this._randomInt(20, 30);
+            return { duration: dur, label: `${dur}s` };
         }
         if (rand < 80) {
-            const duration = 30 + Math.floor(Math.random() * 11); // 30-40
-            return { duration, label: `${duration}s` };
+            const dur = this._randomInt(30, 40);
+            return { duration: dur, label: `${dur}s` };
         }
         if (rand < 90) {
-            const duration = 40 + Math.floor(Math.random() * 11); // 40-50
-            return { duration, label: `${duration}s` };
+            const dur = this._randomInt(40, 50);
+            return { duration: dur, label: `${dur}s` };
         }
-        const duration = 80 + Math.floor(Math.random() * 16); // 80-95
-        return { duration, label: `${duration}s` };
+        // 10% → 80-95 seconds (1min 20s to 1min 35s)
+        const dur = this._randomInt(80, 95);
+        const mins = Math.floor(dur / 60);
+        const secs = dur % 60;
+        return { duration: dur, label: `${mins}:${secs.toString().padStart(2, '0')}` };
+    },
+
+    /**
+     * Random integer between min and max (inclusive)
+     */
+    _randomInt(min, max) {
+        return Math.floor(Math.random() * (max - min + 1)) + min;
     },
 
     /**
      * Estimate hook/chorus start time based on song duration
-     * Most songs follow patterns:
-     * - Short songs (<2 min): Hook at ~25% of duration
-     * - Medium songs (2-4 min): Hook at ~30-35% (~45-80s)
-     * - Long songs (>4 min): Hook at ~25% (~60-90s)
-     * Adding some randomness to keep it varied
+     * Smarter estimation based on typical song structures:
+     * - Intro → Verse 1 → Chorus (hook) typically at 25-35% of duration
+     * - Short songs: earlier hooks
+     * - Long songs: hooks around 60-90s mark
      */
     estimateHookStart(totalDurationSeconds) {
         let hookTime;
-        const randomOffset = Math.floor(Math.random() * 10) - 5; // ±5 seconds randomness
+        const randomOffset = this._randomInt(-5, 5);
 
         if (totalDurationSeconds < 120) {
-            // Short song: hook around 25-35%
-            hookTime = Math.floor(totalDurationSeconds * 0.3);
+            // Short song (<2 min): hook around 25-35%
+            hookTime = Math.floor(totalDurationSeconds * (0.25 + Math.random() * 0.1));
         } else if (totalDurationSeconds < 240) {
-            // Medium song (2-4 min): hook typically around 45-80 seconds
-            hookTime = 45 + Math.floor(Math.random() * 25);
+            // Medium song (2-4 min): hook typically around 45-75 seconds
+            hookTime = 45 + this._randomInt(0, 30);
         } else if (totalDurationSeconds < 360) {
-            // Long song (4-6 min): hook typically around 60-90 seconds
-            hookTime = 55 + Math.floor(Math.random() * 30);
+            // Long song (4-6 min): hook typically around 55-85 seconds
+            hookTime = 55 + this._randomInt(0, 30);
         } else {
-            // Very long song (>6 min): hook typically around 70-120 seconds
-            hookTime = 65 + Math.floor(Math.random() * 40);
+            // Very long song (>6 min): hook around 65-110 seconds
+            hookTime = 65 + this._randomInt(0, 45);
         }
 
         hookTime = Math.max(0, hookTime + randomOffset);
         
         // Make sure hook isn't too close to the end
         if (hookTime > totalDurationSeconds - 30) {
-            hookTime = Math.max(0, totalDurationSeconds * 0.25);
+            hookTime = Math.max(0, Math.floor(totalDurationSeconds * 0.25));
         }
 
         return Math.floor(hookTime);
@@ -152,7 +163,7 @@ const Utils = {
     },
 
     /**
-     * Format seconds to mm:ss for total time
+     * Format seconds to display-friendly string
      */
     formatTotalTime(totalSeconds) {
         if (totalSeconds < 60) return `${totalSeconds}s`;
@@ -200,95 +211,118 @@ const Utils = {
     },
 
     /**
-     * Create animated background particles
+     * Create animated background particles — organic floating dots
      */
     createParticles() {
         const container = document.getElementById('bgParticles');
         const colors = [
-            'rgba(139, 92, 246, 0.3)',
-            'rgba(236, 72, 153, 0.2)',
-            'rgba(79, 172, 254, 0.2)',
-            'rgba(245, 158, 11, 0.15)',
-            'rgba(16, 185, 129, 0.2)'
+            'rgba(124, 58, 237, 0.25)',
+            'rgba(236, 72, 153, 0.15)',
+            'rgba(6, 182, 212, 0.15)',
+            'rgba(245, 158, 11, 0.1)',
+            'rgba(16, 185, 129, 0.12)'
         ];
 
-        for (let i = 0; i < 20; i++) {
+        for (let i = 0; i < 15; i++) {
             const particle = document.createElement('div');
             particle.className = 'particle';
-            const size = Math.random() * 6 + 2;
+            const size = Math.random() * 4 + 1.5;
             const color = colors[Math.floor(Math.random() * colors.length)];
-
+            
             particle.style.cssText = `
                 width: ${size}px;
                 height: ${size}px;
                 background: ${color};
                 left: ${Math.random() * 100}%;
-                animation-duration: ${15 + Math.random() * 20}s;
-                animation-delay: ${Math.random() * 10}s;
+                animation-duration: ${20 + Math.random() * 25}s;
+                animation-delay: ${Math.random() * 15}s;
             `;
-
+            
             container.appendChild(particle);
         }
     },
 
     /**
-     * Detect network speed and return appropriate video quality
-     * Returns quality setting for YouTube player
+     * Detect network quality using navigator.connection API
+     * Returns: { quality: 'fast'|'medium'|'slow'|'offline', label: string, ytQuality: string }
      */
-    async detectVideoQuality() {
-        try {
-            // Check if Network Information API is available
-            if ('connection' in navigator) {
-                const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
-                const effectiveType = connection?.effectiveType;
-
-                // Map connection type to quality
-                const qualityMap = {
-                    'slow-2g': 'small',      // 144p
-                    '2g': 'small',           // 144p
-                    '3g': 'medium',          // 360p
-                    '4g': 'large',           // 480p
-                    '5g': 'hd720'            // 720p
-                };
-
-                if (effectiveType && qualityMap[effectiveType]) {
-                    console.log(`📶 Network: ${effectiveType} → Quality: ${qualityMap[effectiveType]}`);
-                    return qualityMap[effectiveType];
-                }
-            }
-
-            // Fallback: Test download speed
-            const startTime = Date.now();
-            const response = await fetch('https://www.youtube.com/favicon.ico?' + Math.random(), {
-                cache: 'no-store'
-            });
-            await response.blob();
-            const endTime = Date.now();
-            const duration = endTime - startTime;
-
-            // Estimate based on download time
-            if (duration < 100) return 'hd720';      // Fast connection
-            if (duration < 200) return 'large';      // Good connection
-            if (duration < 400) return 'medium';     // Medium connection
-            return 'small';                          // Slow connection
-        } catch (error) {
-            console.warn('Quality detection failed, using default');
-            return 'large'; // Default to 480p
+    getNetworkQuality() {
+        // Check if offline
+        if (!navigator.onLine) {
+            return { quality: 'offline', label: 'Offline', ytQuality: 'small' };
         }
+
+        const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+        
+        if (!conn) {
+            // API not available — assume medium
+            return { quality: 'medium', label: 'Auto', ytQuality: 'default' };
+        }
+
+        const downlink = conn.downlink; // Mbps
+        const effectiveType = conn.effectiveType; // '4g', '3g', '2g', 'slow-2g'
+
+        if (effectiveType === 'slow-2g' || effectiveType === '2g' || downlink < 0.5) {
+            return { quality: 'slow', label: '2G · Low', ytQuality: 'small' };
+        }
+        if (effectiveType === '3g' || downlink < 2) {
+            return { quality: 'slow', label: '3G · Medium', ytQuality: 'medium' };
+        }
+        if (downlink < 5) {
+            return { quality: 'medium', label: '4G · HD', ytQuality: 'large' };
+        }
+        if (downlink < 10) {
+            return { quality: 'fast', label: 'Fast · HD', ytQuality: 'hd720' };
+        }
+        return { quality: 'fast', label: 'Ultra · Full HD', ytQuality: 'hd1080' };
     },
 
     /**
-     * Monitor network changes and update quality
+     * Update network badge UI
      */
-    onNetworkChange(callback) {
-        if ('connection' in navigator) {
-            const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
-            if (connection) {
-                connection.addEventListener('change', async () => {
-                    const quality = await this.detectVideoQuality();
-                    callback(quality);
-                });
-            }
+    updateNetworkBadge() {
+        const info = this.getNetworkQuality();
+        const dot = document.getElementById('networkDot');
+        const text = document.getElementById('networkText');
+
+        if (!dot || !text) return info;
+
+        // Reset classes
+        dot.className = 'network-dot';
+        
+        if (info.quality === 'slow') {
+            dot.classList.add('slow');
+        } else if (info.quality === 'offline') {
+            dot.classList.add('offline');
         }
+
+        text.textContent = info.label;
+        return info;
+    },
+
+    /**
+     * Animate a number counter (for stats)
+     */
+    animateCounter(element, targetValue, duration = 400) {
+        const startValue = parseInt(element.textContent) || 0;
+        if (startValue === targetValue) return;
+
+        const startTime = performance.now();
+        const diff = targetValue - startValue;
+
+        const animate = (currentTime) => {
+            const elapsed = currentTime - startTime;
+            const progress = Math.min(elapsed / duration, 1);
+            // Ease out cubic
+            const eased = 1 - Math.pow(1 - progress, 3);
+            const current = Math.round(startValue + diff * eased);
+            element.textContent = current;
+
+            if (progress < 1) {
+                requestAnimationFrame(animate);
+            }
+        };
+
+        requestAnimationFrame(animate);
     }
 };

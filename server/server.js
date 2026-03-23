@@ -8,17 +8,36 @@ const PORT = process.env.PORT || 3000;
 // Middleware
 app.use(cors());
 app.use(express.json());
-app.use(express.static(path.join(__dirname, '..', 'public')));
 
-// API: Parse YouTube URL and extract video ID(s)
+// Serve static files with proper MIME types and caching
+app.use(express.static(path.join(__dirname, '..', 'public'), {
+    setHeaders: (res, filePath) => {
+        if (filePath.endsWith('.css')) {
+            res.setHeader('Content-Type', 'text/css; charset=utf-8');
+        } else if (filePath.endsWith('.js')) {
+            res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+        } else if (filePath.endsWith('.html')) {
+            res.setHeader('Content-Type', 'text/html; charset=utf-8');
+        }
+        // Cache static assets for 1 hour
+        if (!filePath.endsWith('.html')) {
+            res.setHeader('Cache-Control', 'public, max-age=3600');
+        }
+    }
+}));
+
+// API: Health check
+app.get('/api/health', (req, res) => {
+    res.json({ status: 'ok', timestamp: Date.now() });
+});
+
+// API: Parse YouTube URL  
 app.post('/api/parse-url', (req, res) => {
     try {
         const { url } = req.body;
-        
         if (!url) {
             return res.status(400).json({ error: 'URL is required' });
         }
-
         const result = parseYouTubeUrl(url);
         res.json(result);
     } catch (error) {
@@ -26,20 +45,20 @@ app.post('/api/parse-url', (req, res) => {
     }
 });
 
-// API: Get playlist videos using YouTube oEmbed (no API key needed)
+// API: Playlist info endpoint
 app.get('/api/playlist-info/:playlistId', async (req, res) => {
     try {
         const { playlistId } = req.params;
         res.json({ 
             playlistId,
-            message: 'Playlist will be loaded via YouTube IFrame API on the client side'
+            message: 'Playlist loaded via YouTube IFrame API on client side'
         });
     } catch (error) {
         res.status(500).json({ error: 'Failed to fetch playlist info' });
     }
 });
 
-// Serve main page for all routes
+// Serve main page for all other routes
 app.get('*', (req, res) => {
     res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
 });
@@ -54,43 +73,37 @@ function parseYouTubeUrl(url) {
     };
 
     try {
-        // Handle various YouTube URL formats
         let urlObj;
         try {
             urlObj = new URL(url);
         } catch {
-            // Try adding https if missing
             urlObj = new URL('https://' + url);
         }
 
         const hostname = urlObj.hostname.replace('www.', '');
 
-        // Check for playlist
         const listParam = urlObj.searchParams.get('list');
         if (listParam) {
             result.playlistId = listParam;
             result.type = 'playlist';
         }
 
-        // Check for video ID
         if (hostname === 'youtu.be') {
             result.videoId = urlObj.pathname.slice(1);
             result.type = result.type || 'video';
-        } else if (hostname === 'youtube.com' || hostname === 'm.youtube.com') {
+        } else if (['youtube.com', 'm.youtube.com', 'music.youtube.com'].includes(hostname)) {
             const vParam = urlObj.searchParams.get('v');
             if (vParam) {
                 result.videoId = vParam;
                 result.type = result.type || 'video';
             }
-            
-            // Check for /embed/ or /v/ format
+
             const embedMatch = urlObj.pathname.match(/\/(embed|v)\/([^/?]+)/);
             if (embedMatch) {
                 result.videoId = embedMatch[2];
                 result.type = result.type || 'video';
             }
 
-            // Check for /shorts/ format
             const shortsMatch = urlObj.pathname.match(/\/shorts\/([^/?]+)/);
             if (shortsMatch) {
                 result.videoId = shortsMatch[1];
@@ -98,12 +111,10 @@ function parseYouTubeUrl(url) {
             }
         }
 
-        // Get timestamp if present
         const tParam = urlObj.searchParams.get('t');
         if (tParam) {
             result.timestamp = parseInt(tParam);
         }
-
     } catch (error) {
         result.error = 'Invalid YouTube URL';
     }
@@ -114,17 +125,14 @@ function parseYouTubeUrl(url) {
 // Export for Vercel serverless
 module.exports = app;
 
-// Start server only when running locally (not on Vercel)
+// Start server locally
 if (require.main === module) {
     app.listen(PORT, '0.0.0.0', () => {
         console.log(`
     ╔══════════════════════════════════════════╗
-    ║   🎵 YouTube Hook Player Server 🎵      ║
+    ║   🎵 Hook Player Server Running 🎵      ║
     ║                                          ║
-    ║   Server running on port ${PORT}            ║
     ║   Local:   http://localhost:${PORT}          ║
-    ║   Network: http://0.0.0.0:${PORT}           ║
-    ║                                          ║
     ╚══════════════════════════════════════════╝
         `);
     });

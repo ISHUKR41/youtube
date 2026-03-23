@@ -1,11 +1,13 @@
 /* ============================================
    Main Application Controller
+   Queue management, UI updates, interactions
    ============================================ */
 
 const App = {
     queue: [],
     currentIndex: -1,
     isShuffleOn: false,
+    networkCheckInterval: null,
     stats: {
         songsPlayed: 0,
         totalListenTime: 0
@@ -20,11 +22,11 @@ const App = {
         // Create background particles
         Utils.createParticles();
 
-        // Initialize YouTube player (also detects quality)
-        await HookPlayer.init();
+        // Initialize network monitoring
+        this._initNetworkMonitor();
 
-        // Update network indicator
-        this._updateNetworkIndicator();
+        // Initialize YouTube player
+        await HookPlayer.init();
 
         // Set up event handlers
         this._setupEventListeners();
@@ -35,23 +37,81 @@ const App = {
             this._onPlayerStateChange(state, data, hookTime, duration);
         };
 
+        // Setup intersection observer for reveal animations
+        this._setupRevealAnimations();
+
         Utils.showToast('Hook Player ready! Paste a YouTube URL 🎶', 'success');
+    },
+
+    /**
+     * Initialize network quality monitoring
+     */
+    _initNetworkMonitor() {
+        // Initial check
+        Utils.updateNetworkBadge();
+
+        // Monitor network changes
+        const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+        if (conn) {
+            conn.addEventListener('change', () => {
+                const info = Utils.updateNetworkBadge();
+                Utils.showToast(`Network: ${info.label}`, 'info');
+            });
+        }
+
+        // Also listen for online/offline events
+        window.addEventListener('online', () => {
+            Utils.updateNetworkBadge();
+            Utils.showToast('Back online! 🌐', 'success');
+        });
+
+        window.addEventListener('offline', () => {
+            Utils.updateNetworkBadge();
+            Utils.showToast('You are offline', 'warning');
+        });
+
+        // Periodic check every 30 seconds
+        this.networkCheckInterval = setInterval(() => {
+            Utils.updateNetworkBadge();
+        }, 30000);
+    },
+
+    /**
+     * Setup intersection observer for reveal animations
+     */
+    _setupRevealAnimations() {
+        const sections = document.querySelectorAll('.reveal-section');
+        if (sections.length === 0) return;
+
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    entry.target.classList.add('visible');
+                }
+            });
+        }, {
+            threshold: 0.1,
+            rootMargin: '0px 0px -30px 0px'
+        });
+
+        sections.forEach(section => observer.observe(section));
     },
 
     /**
      * Set up all DOM event listeners
      */
     _setupEventListeners() {
-        // URL Input - Enter key
         const urlInput = document.getElementById('urlInput');
+        
+        // URL Input — Enter key
         urlInput.addEventListener('keypress', (e) => {
             if (e.key === 'Enter') {
                 this._handleUrlSubmit();
             }
         });
 
-        // URL Input - Paste event (auto-submit on paste)
-        urlInput.addEventListener('paste', (e) => {
+        // URL Input — Paste event (auto-submit)
+        urlInput.addEventListener('paste', () => {
             setTimeout(() => {
                 this._handleUrlSubmit();
             }, 100);
@@ -62,34 +122,33 @@ const App = {
             this._handleUrlSubmit();
         });
 
-        // Play/Pause button
+        // Play/Pause
         document.getElementById('playPauseBtn').addEventListener('click', () => {
             HookPlayer.togglePlayPause();
         });
 
-        // Next button
+        // Next
         document.getElementById('nextBtn').addEventListener('click', () => {
             this.playNext();
         });
 
-        // Previous button
+        // Previous
         document.getElementById('prevBtn').addEventListener('click', () => {
             this.playPrevious();
         });
 
-        // Shuffle button
+        // Shuffle
         document.getElementById('shuffleBtn').addEventListener('click', () => {
             this.toggleShuffle();
         });
 
-        // Clear queue button
+        // Clear queue
         document.getElementById('clearQueueBtn').addEventListener('click', () => {
             this.clearQueue();
         });
 
         // Keyboard shortcuts
         document.addEventListener('keydown', (e) => {
-            // Don't intercept when typing in input
             if (e.target === urlInput) return;
 
             switch(e.code) {
@@ -102,6 +161,9 @@ const App = {
                     break;
                 case 'ArrowLeft':
                     this.playPrevious();
+                    break;
+                case 'KeyS':
+                    this.toggleShuffle();
                     break;
             }
         });
@@ -127,36 +189,28 @@ const App = {
         }
 
         if (parsed.type === 'playlist' && parsed.playlistId) {
-            // Handle playlist
             this._handlePlaylist(parsed.playlistId, parsed.videoId);
         } else if (parsed.videoId) {
-            // Handle single video
             this._addToQueue(parsed.videoId);
             Utils.showToast('Song added to queue! 🎵', 'success');
 
-            // Auto-play if nothing is playing
             if (!HookPlayer.isPlaying && this.currentIndex === -1) {
                 this.currentIndex = this.queue.length - 1;
                 this._playCurrent();
             }
         }
 
-        // Clear input
         input.value = '';
         input.focus();
     },
 
     /**
-     * Handle playlist URL - loads videos from playlist
+     * Handle playlist URL
      */
     async _handlePlaylist(playlistId, firstVideoId) {
         Utils.showToast('Loading playlist... 📋', 'info');
 
-        // We'll use a hidden player approach to load playlist
-        // Create a temporary player to read playlist items
         try {
-            // Use the YouTube IFrame API to load playlist info
-            // by creating a temporary invisible player
             const tempDiv = document.createElement('div');
             tempDiv.id = 'tempPlaylistPlayer';
             tempDiv.style.display = 'none';
@@ -171,7 +225,6 @@ const App = {
                 },
                 events: {
                     'onReady': (event) => {
-                        // Give it time to load playlist data
                         setTimeout(() => {
                             try {
                                 const playlist = event.target.getPlaylist();
@@ -182,7 +235,6 @@ const App = {
 
                                     Utils.showToast(`Added ${playlist.length} songs from playlist! 🎶`, 'success');
 
-                                    // Auto-play first song if nothing playing
                                     if (!HookPlayer.isPlaying && this.currentIndex === -1) {
                                         this.currentIndex = this.queue.length - playlist.length;
                                         this._playCurrent();
@@ -192,7 +244,6 @@ const App = {
                                 }
                             } catch (e) {
                                 console.error('Playlist load error:', e);
-                                // Fallback: add the single video if available
                                 if (firstVideoId) {
                                     this._addToQueue(firstVideoId);
                                     Utils.showToast('Added 1 song from playlist link', 'info');
@@ -203,14 +254,12 @@ const App = {
                                 }
                             }
 
-                            // Clean up temp player
                             event.target.destroy();
                             const el = document.getElementById('tempPlaylistPlayer');
                             if (el) el.remove();
                         }, 2000);
                     },
                     'onError': () => {
-                        // Fallback: add single video
                         if (firstVideoId) {
                             this._addToQueue(firstVideoId);
                             Utils.showToast('Playlist not loadable. Added 1 song.', 'warning');
@@ -262,8 +311,6 @@ const App = {
         
         // Show player section
         document.getElementById('playerSection').classList.add('active');
-
-        // Hide overlay
         document.getElementById('playerOverlay').classList.add('hidden');
 
         // Play the song
@@ -280,7 +327,6 @@ const App = {
         if (this.queue.length === 0) return;
 
         if (this.isShuffleOn) {
-            // Random next song (not the same one)
             let nextIndex;
             do {
                 nextIndex = Math.floor(Math.random() * this.queue.length);
@@ -298,7 +344,6 @@ const App = {
      */
     playPrevious() {
         if (this.queue.length === 0) return;
-
         this.currentIndex = (this.currentIndex - 1 + this.queue.length) % this.queue.length;
         this._playCurrent();
     },
@@ -326,6 +371,7 @@ const App = {
 
         this._renderQueue();
         this._updateStats();
+        this._updateVisualizer(false);
         Utils.showToast('Queue cleared', 'info');
     },
 
@@ -336,7 +382,6 @@ const App = {
         const index = this.queue.findIndex(s => s.id === songId);
         if (index === -1) return;
 
-        // If removing currently playing song
         if (index === this.currentIndex) {
             this.queue.splice(index, 1);
             if (this.queue.length > 0) {
@@ -346,10 +391,10 @@ const App = {
                 this.currentIndex = -1;
                 HookPlayer.stop();
                 document.getElementById('playerSection').classList.remove('active');
+                this._updateVisualizer(false);
             }
         } else {
             this.queue.splice(index, 1);
-            // Adjust current index if needed
             if (index < this.currentIndex) {
                 this.currentIndex--;
             }
@@ -360,7 +405,7 @@ const App = {
     },
 
     /**
-     * Play a specific song from queue by clicking
+     * Play a specific song from queue
      */
     _playSongAtIndex(index) {
         this.currentIndex = index;
@@ -368,16 +413,29 @@ const App = {
     },
 
     /**
+     * Update audio visualizer state
+     */
+    _updateVisualizer(playing) {
+        const viz = document.getElementById('audioVisualizer');
+        if (!viz) return;
+        
+        if (playing) {
+            viz.classList.remove('paused');
+        } else {
+            viz.classList.add('paused');
+        }
+    },
+
+    /**
      * Called when a song ends
      */
     _onSongEnd(reason) {
         this.stats.songsPlayed++;
+        this._updateVisualizer(false);
         
-        // Update progress to 100%
         document.getElementById('progressFill').style.width = '100%';
         document.getElementById('progressGlow').style.width = '100%';
 
-        // Auto-play next after a brief pause
         setTimeout(() => {
             if (this.queue.length > 0) {
                 this.playNext();
@@ -386,12 +444,11 @@ const App = {
     },
 
     /**
-     * Handle player state changes  
+     * Handle player state changes
      */
     _onPlayerStateChange(state, data, hookTime, duration) {
         switch (state) {
             case 'playing':
-                // Update UI with song info
                 document.getElementById('songTitle').textContent = data.title;
                 document.getElementById('hookInfo').innerHTML = 
                     `<span class="meta-icon">🎯</span> Hook: ${Utils.formatTime(hookTime)}`;
@@ -400,11 +457,17 @@ const App = {
                 document.getElementById('durationBadge').textContent = data.durationLabel;
                 document.getElementById('endTime').textContent = Utils.formatTime(duration);
                 
-                // Update play/pause icons
+                // Update quality display
+                if (data.quality) {
+                    document.getElementById('qualityInfo').innerHTML = 
+                        `<span class="meta-icon">📶</span> Quality: ${data.quality}`;
+                }
+
                 document.getElementById('playIcon').style.display = 'none';
                 document.getElementById('pauseIcon').style.display = 'block';
 
-                // Update queue item title
+                this._updateVisualizer(true);
+
                 if (this.currentIndex >= 0 && this.currentIndex < this.queue.length) {
                     this.queue[this.currentIndex].title = data.title;
                     this._renderQueue();
@@ -425,9 +488,8 @@ const App = {
                 document.getElementById('progressGlow').style.width = `${progress}%`;
                 document.getElementById('currentTime').textContent = Utils.formatTime(data.elapsed);
                 
-                // Update total listen time
                 this.stats.totalListenTime = Math.floor(
-                    (this.stats.songsPlayed > 0 ? this.stats.totalListenTime : 0) + 0.25
+                    (this.stats.songsPlayed > 0 ? this.stats.totalListenTime : 0) + 0.2
                 );
                 this._updateStats();
                 break;
@@ -435,11 +497,13 @@ const App = {
             case 'paused':
                 document.getElementById('playIcon').style.display = 'block';
                 document.getElementById('pauseIcon').style.display = 'none';
+                this._updateVisualizer(false);
                 break;
 
             case 'resumed':
                 document.getElementById('playIcon').style.display = 'none';
                 document.getElementById('pauseIcon').style.display = 'block';
+                this._updateVisualizer(true);
                 break;
 
             case 'stopped':
@@ -448,6 +512,24 @@ const App = {
                 document.getElementById('progressFill').style.width = '0%';
                 document.getElementById('progressGlow').style.width = '0%';
                 document.getElementById('currentTime').textContent = '0:00';
+                this._updateVisualizer(false);
+                break;
+
+            case 'qualityChange':
+                if (data && data.quality) {
+                    const qualityLabels = {
+                        'small': '240p',
+                        'medium': '360p',
+                        'large': '480p',
+                        'hd720': '720p HD',
+                        'hd1080': '1080p Full HD',
+                        'highres': '4K+',
+                        'default': 'Auto'
+                    };
+                    const label = qualityLabels[data.quality] || data.quality;
+                    document.getElementById('qualityInfo').innerHTML = 
+                        `<span class="meta-icon">📶</span> ${label}`;
+                }
                 break;
         }
     },
@@ -493,7 +575,6 @@ const App = {
             </div>
         `).join('');
 
-        // Update queue count
         document.getElementById('queueCount').textContent = `${this.queue.length} song${this.queue.length !== 1 ? 's' : ''}`;
     },
 
@@ -501,9 +582,14 @@ const App = {
      * Update stats display
      */
     _updateStats() {
-        document.getElementById('totalPlayed').textContent = this.stats.songsPlayed;
+        const totalPlayedEl = document.getElementById('totalPlayed');
+        const queueSizeEl = document.getElementById('queueSize');
+        
+        // Use animated counters for numbers
+        Utils.animateCounter(totalPlayedEl, this.stats.songsPlayed);
+        Utils.animateCounter(queueSizeEl, this.queue.length);
+        
         document.getElementById('totalTime').textContent = Utils.formatTotalTime(Math.floor(this.stats.totalListenTime));
-        document.getElementById('queueSize').textContent = this.queue.length;
     },
 
     /**
@@ -513,35 +599,6 @@ const App = {
         const div = document.createElement('div');
         div.textContent = str;
         return div.innerHTML;
-    },
-
-    /**
-     * Update network quality indicator
-     */
-    _updateNetworkIndicator() {
-        const qualityEl = document.getElementById('networkQuality');
-        const quality = HookPlayer.videoQuality;
-
-        const qualityMap = {
-            'hd720': { text: 'HD Quality (720p)', class: 'quality-hd' },
-            'hd1080': { text: 'Full HD (1080p)', class: 'quality-hd' },
-            'large': { text: 'Good Quality (480p)', class: 'quality-good' },
-            'medium': { text: 'Medium (360p)', class: 'quality-medium' },
-            'small': { text: 'Low Quality (144p)', class: 'quality-low' }
-        };
-
-        const info = qualityMap[quality] || { text: 'Auto Quality', class: '' };
-
-        qualityEl.textContent = info.text;
-        qualityEl.className = 'network-quality ' + info.class;
-
-        // Monitor network changes
-        Utils.onNetworkChange((newQuality) => {
-            const newInfo = qualityMap[newQuality] || { text: 'Auto Quality', class: '' };
-            qualityEl.textContent = newInfo.text;
-            qualityEl.className = 'network-quality ' + newInfo.class;
-            Utils.showToast(`Quality changed: ${newInfo.text}`, 'info');
-        });
     }
 };
 

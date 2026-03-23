@@ -1,6 +1,6 @@
 /* ============================================
    YouTube Player Module
-   Uses YouTube IFrame API for playback
+   Uses YouTube IFrame API with Adaptive Quality
    ============================================ */
 
 const HookPlayer = {
@@ -13,36 +13,20 @@ const HookPlayer = {
     progressTimer: null,
     playStartTime: 0,
     isPlaying: false,
-    onSongEnd: null,      // callback when song ends
-    onStateChange: null,  // callback for state changes
-    videoQuality: 'large', // Default quality
+    currentQuality: 'default',
+    onSongEnd: null,
+    onStateChange: null,
 
     /**
      * Initialize the YouTube IFrame API
      */
     init() {
-        return new Promise(async (resolve) => {
-            // Detect optimal video quality based on network speed
-            this.videoQuality = await Utils.detectVideoQuality();
-            console.log(`🎬 Initial video quality: ${this.videoQuality}`);
-
-            // Monitor network changes
-            Utils.onNetworkChange((newQuality) => {
-                this.videoQuality = newQuality;
-                console.log(`📶 Network changed, new quality: ${newQuality}`);
-                // Apply quality to current player if playing
-                if (this.player && this.isPlaying) {
-                    this._applyQuality();
-                }
-            });
-
-            // Load the YouTube IFrame API script
+        return new Promise((resolve) => {
             const tag = document.createElement('script');
             tag.src = 'https://www.youtube.com/iframe_api';
             const firstScript = document.getElementsByTagName('script')[0];
             firstScript.parentNode.insertBefore(tag, firstScript);
 
-            // YouTube API calls this function when ready
             window.onYouTubeIframeAPIReady = () => {
                 this.player = new YT.Player('youtubePlayer', {
                     height: '100%',
@@ -56,19 +40,23 @@ const HookPlayer = {
                         'modestbranding': 1,
                         'rel': 0,
                         'showinfo': 0,
-                        'playsinline': 1,
-                        'hd': 1
+                        'playsinline': 1
                     },
                     events: {
                         'onReady': () => {
                             this.isReady = true;
                             console.log('🎵 YouTube Player Ready');
+                            // Set initial quality based on network
+                            this._applyAdaptiveQuality();
                             resolve();
                         },
                         'onStateChange': (event) => this._handleStateChange(event),
                         'onError': (event) => this._handleError(event),
                         'onPlaybackQualityChange': (event) => {
-                            console.log(`Quality changed to: ${event.data}`);
+                            this.currentQuality = event.data;
+                            if (this.onStateChange) {
+                                this.onStateChange('qualityChange', { quality: event.data });
+                            }
                         }
                     }
                 });
@@ -77,9 +65,27 @@ const HookPlayer = {
     },
 
     /**
+     * Apply adaptive quality based on network speed
+     */
+    _applyAdaptiveQuality() {
+        const networkInfo = Utils.getNetworkQuality();
+        const ytQuality = networkInfo.ytQuality;
+
+        if (this.player && this.player.setPlaybackQuality) {
+            try {
+                this.player.setPlaybackQuality(ytQuality);
+            } catch (e) {
+                // Quality API may not always work
+                console.log('Quality set attempt:', ytQuality);
+            }
+        }
+
+        this.currentQuality = ytQuality;
+        return networkInfo;
+    },
+
+    /**
      * Play a song by video ID
-     * @param {string} videoId - YouTube video ID
-     * @param {string} title - Song title (optional)
      */
     async playSong(videoId, title = '') {
         if (!this.isReady || !this.player) {
@@ -90,6 +96,9 @@ const HookPlayer = {
         // Clear any existing timers
         this._clearTimers();
 
+        // Re-check network quality and apply
+        const networkInfo = this._applyAdaptiveQuality();
+
         // Get random play duration
         const durationInfo = Utils.getRandomDuration();
         this.playDuration = durationInfo.duration;
@@ -99,16 +108,18 @@ const HookPlayer = {
             videoId,
             title: title || 'Loading...',
             duration: durationInfo.duration,
-            durationLabel: durationInfo.label
+            durationLabel: durationInfo.label,
+            quality: networkInfo.label
         };
 
-        // Load the video first (start at 0 to get duration)
+        // Load the video
         this.player.loadVideoById({
             videoId: videoId,
-            startSeconds: 0
+            startSeconds: 0,
+            suggestedQuality: networkInfo.ytQuality
         });
 
-        // Wait for video to load and get duration
+        // Wait for video duration
         this._waitForDuration(videoId);
     },
 
@@ -123,13 +134,13 @@ const HookPlayer = {
             attempts++;
             
             if (!this.player || !this.currentSong || this.currentSong.videoId !== videoId) {
-                return; // Song changed, stop checking
+                return;
             }
 
             const totalDuration = this.player.getDuration();
             
             if (totalDuration > 0) {
-                // Got duration - estimate hook position
+                // Got duration — estimate hook position
                 this.hookStartTime = Utils.estimateHookStart(totalDuration);
                 
                 // Make sure we don't play past the end
@@ -150,9 +161,6 @@ const HookPlayer = {
                 this.playStartTime = Date.now();
                 this.isPlaying = true;
 
-                // Apply adaptive quality
-                this._applyQuality();
-
                 // Notify state change
                 if (this.onStateChange) {
                     this.onStateChange('playing', this.currentSong, this.hookStartTime, this.playDuration);
@@ -166,12 +174,11 @@ const HookPlayer = {
                 // Start progress updates
                 this._startProgressUpdates();
 
-                console.log(`🎵 Playing "${this.currentSong.title}" from ${Utils.formatTime(this.hookStartTime)} for ${this.playDuration}s`);
+                console.log(`🎵 Playing "${this.currentSong.title}" from ${Utils.formatTime(this.hookStartTime)} for ${this.playDuration}s [${this.currentQuality}]`);
             } else if (attempts < maxAttempts) {
                 setTimeout(checkDuration, 200);
             } else {
                 console.error('Could not get video duration');
-                // Play from start as fallback
                 this.hookStartTime = 0;
                 this.player.seekTo(0, true);
                 this.player.playVideo();
@@ -195,7 +202,6 @@ const HookPlayer = {
     _handleStateChange(event) {
         switch (event.data) {
             case YT.PlayerState.PLAYING:
-                // Update title if available
                 const videoData = this.player.getVideoData();
                 if (videoData && videoData.title && this.currentSong) {
                     this.currentSong.title = videoData.title;
@@ -210,7 +216,6 @@ const HookPlayer = {
                 break;
 
             case YT.PlayerState.PAUSED:
-                // Don't trigger end if we paused it
                 break;
         }
     },
@@ -231,7 +236,6 @@ const HookPlayer = {
         console.error(`Player error: ${message} (${event.data})`);
         Utils.showToast(`Error: ${message}. Skipping...`, 'error');
 
-        // Auto-skip to next song after error
         setTimeout(() => {
             if (this.onSongEnd) {
                 this.onSongEnd('error');
@@ -246,12 +250,10 @@ const HookPlayer = {
         this._clearTimers();
         this.isPlaying = false;
 
-        // Pause the video
         if (this.player && this.player.pauseVideo) {
             this.player.pauseVideo();
         }
 
-        // Notify that song ended
         if (this.onSongEnd) {
             this.onSongEnd('complete');
         }
@@ -277,7 +279,7 @@ const HookPlayer = {
                     currentTime: this.hookStartTime + elapsed
                 });
             }
-        }, 250);
+        }, 200);
     },
 
     /**
@@ -292,7 +294,6 @@ const HookPlayer = {
             this.player.pauseVideo();
             this.isPlaying = false;
             
-            // Pause the play duration timer
             if (this.playTimer) {
                 clearTimeout(this.playTimer);
                 const elapsed = (Date.now() - this.playStartTime) / 1000;
@@ -308,7 +309,6 @@ const HookPlayer = {
             this.isPlaying = true;
             this.playStartTime = Date.now();
 
-            // Resume play duration timer
             this.playTimer = setTimeout(() => {
                 this._songDurationComplete();
             }, this.playDuration * 1000);
@@ -338,9 +338,6 @@ const HookPlayer = {
         }
     },
 
-    /**
-     * Clear all timers
-     */
     _clearTimers() {
         if (this.playTimer) {
             clearTimeout(this.playTimer);
@@ -349,9 +346,6 @@ const HookPlayer = {
         this._clearProgressTimer();
     },
 
-    /**
-     * Clear progress timer only
-     */
     _clearProgressTimer() {
         if (this.progressTimer) {
             clearInterval(this.progressTimer);
@@ -359,29 +353,13 @@ const HookPlayer = {
         }
     },
 
-    /**
-     * Get current player state info
-     */
     getState() {
         return {
             isPlaying: this.isPlaying,
             currentSong: this.currentSong,
             hookStartTime: this.hookStartTime,
-            playDuration: this.playDuration
+            playDuration: this.playDuration,
+            quality: this.currentQuality
         };
-    },
-
-    /**
-     * Apply current quality setting to the player
-     */
-    _applyQuality() {
-        if (!this.player || !this.player.setPlaybackQuality) return;
-
-        try {
-            this.player.setPlaybackQuality(this.videoQuality);
-            console.log(`✅ Applied quality: ${this.videoQuality}`);
-        } catch (error) {
-            console.warn('Could not set playback quality:', error);
-        }
     }
 };

@@ -1,11 +1,14 @@
 {
   "name": "youtube-hook-player",
-  "version": "1.0.0",
-  "description": "YouTube Song Hook Player - Play songs from their hook with random durations",
+  "version": "2.0.0",
+  "description": "YouTube Song Hook Player - Play the best part of any song with random durations and adaptive quality",
   "main": "server/server.js",
   "scripts": {
     "start": "node server/server.js",
     "dev": "node server/server.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   },
   "dependencies": {
     "express": "^4.18.2",
