@@ -324,5 +324,25 @@ const Utils = {
         };
 
         requestAnimationFrame(animate);
-    }
+    },
+
+    /**
+     * Surprise Stop System
+     * ~15% chance to randomly stop between 5s–120s
+     * Adds unpredictability and excitement
+     */
+    getSurpriseStop() {
+        const roll = Math.random() * 100;
+        if (roll < 15) {
+            // Surprise! Stop between 5 and 120 seconds
+            const stopTime = this._randomInt(5, 120);
+            return { shouldSurprise: true, surpriseTime: stopTime };
+        }
+        return { shouldSurprise: false, surpriseTime: 0 };
+    },
+
+    /**
+     * Break duration constant (in seconds)
+     */
+    BREAK_DURATION: 10
 };

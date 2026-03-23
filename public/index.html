@@ -6,7 +6,7 @@
     <title>Hook Player — Play the Best Part of Any Song</title>
     <meta name="description" content="Paste any YouTube song or playlist URL and instantly hear the hook — the best part of the song. Random play durations keep it fresh every time.">
     <meta name="keywords" content="hook player, youtube song player, chorus player, song hook, best part of song, youtube playlist player, music hook, youtube music">
-    <meta name="theme-color" content="#7c3aed">
+    <meta name="theme-color" content="#0a0a0f">
     <meta name="author" content="Hook Player">
     <meta name="robots" content="index, follow">
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎵</text></svg>">
@@ -36,8 +36,18 @@
         <span id="networkText">Checking...</span>
     </div>
 
+    <!-- Surprise Badge -->
+    <div class="surprise-badge" id="surpriseBadge">
+        <span class="surprise-icon">⚡</span>
+        <span class="surprise-text">Surprise Mode</span>
+    </div>
+
     <!-- Animated Background -->
     <div class="bg-particles" id="bgParticles"></div>
+    <div class="bg-grid"></div>
+    <div class="bg-glow bg-glow-1"></div>
+    <div class="bg-glow bg-glow-2"></div>
+    <div class="bg-glow bg-glow-3"></div>
 
     <!-- App Container -->
     <div class="app-container">
@@ -84,6 +94,10 @@
             <div class="feature-pill">
                 <span class="pill-pct">10%</span>
                 <span>80–95s</span>
+            </div>
+            <div class="feature-pill">
+                <span class="pill-icon">⚡</span>
+                <span>Surprise Stops</span>
             </div>
             <div class="feature-pill">
                 <span class="pill-icon">📶</span>
@@ -139,6 +153,26 @@
                     <div class="player-overlay" id="playerOverlay">
                         <div class="play-icon-large">▶</div>
                         <p>Paste a YouTube URL to start</p>
+                    </div>
+
+                    <!-- Break Overlay -->
+                    <div class="break-overlay" id="breakOverlay">
+                        <div class="break-content">
+                            <div class="break-reason" id="breakReason">✨ Song Complete</div>
+                            <div class="break-countdown-ring">
+                                <svg viewBox="0 0 120 120" class="countdown-svg">
+                                    <circle class="ring-bg" cx="60" cy="60" r="54" />
+                                    <circle class="ring-progress" id="breakRing" cx="60" cy="60" r="54" />
+                                </svg>
+                                <div class="break-countdown-number" id="breakCountdown">10</div>
+                            </div>
+                            <div class="break-next-info">
+                                <p class="break-label">Up Next</p>
+                                <img class="break-next-thumb" id="breakNextThumb" src="" alt="" loading="lazy">
+                                <p class="break-next-title" id="breakNextTitle">Next song...</p>
+                            </div>
+                            <button class="break-skip-btn" id="skipBreakBtn">Skip →</button>
+                        </div>
                     </div>
                 </div>
 

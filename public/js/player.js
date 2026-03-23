@@ -1,6 +1,7 @@
 /* ============================================
    YouTube Player Module
    Uses YouTube IFrame API with Adaptive Quality
+   Break System + Surprise Stop Feature
    ============================================ */
 
 const HookPlayer = {
@@ -11,11 +12,21 @@ const HookPlayer = {
     playDuration: 0,
     playTimer: null,
     progressTimer: null,
+    surpriseTimer: null,
     playStartTime: 0,
     isPlaying: false,
+    isOnBreak: false,
+    breakTimer: null,
+    breakCountdown: 0,
+    breakInterval: null,
     currentQuality: 'default',
+    nextSongPreloaded: null,
     onSongEnd: null,
     onStateChange: null,
+    onBreakStart: null,
+    onBreakTick: null,
+    onBreakEnd: null,
+    onSurpriseStop: null,
 
     /**
      * Initialize the YouTube IFrame API
@@ -46,7 +57,6 @@ const HookPlayer = {
                         'onReady': () => {
                             this.isReady = true;
                             console.log('🎵 YouTube Player Ready');
-                            // Set initial quality based on network
                             this._applyAdaptiveQuality();
                             resolve();
                         },
@@ -75,7 +85,6 @@ const HookPlayer = {
             try {
                 this.player.setPlaybackQuality(ytQuality);
             } catch (e) {
-                // Quality API may not always work
                 console.log('Quality set attempt:', ytQuality);
             }
         }
@@ -95,6 +104,7 @@ const HookPlayer = {
 
         // Clear any existing timers
         this._clearTimers();
+        this._clearBreak();
 
         // Re-check network quality and apply
         const networkInfo = this._applyAdaptiveQuality();
@@ -103,13 +113,17 @@ const HookPlayer = {
         const durationInfo = Utils.getRandomDuration();
         this.playDuration = durationInfo.duration;
 
+        // Check for surprise stop
+        const surprise = Utils.getSurpriseStop();
+
         // Store current song info
         this.currentSong = {
             videoId,
             title: title || 'Loading...',
             duration: durationInfo.duration,
             durationLabel: durationInfo.label,
-            quality: networkInfo.label
+            quality: networkInfo.label,
+            isSurprise: surprise.shouldSurprise
         };
 
         // Load the video
@@ -119,14 +133,14 @@ const HookPlayer = {
             suggestedQuality: networkInfo.ytQuality
         });
 
-        // Wait for video duration
-        this._waitForDuration(videoId);
+        // Wait for video duration then seek to hook
+        this._waitForDuration(videoId, surprise);
     },
 
     /**
      * Wait for video duration to be available, then seek to hook
      */
-    _waitForDuration(videoId) {
+    _waitForDuration(videoId, surprise) {
         let attempts = 0;
         const maxAttempts = 50;
 
@@ -166,15 +180,32 @@ const HookPlayer = {
                     this.onStateChange('playing', this.currentSong, this.hookStartTime, this.playDuration);
                 }
 
-                // Set timer to stop after play duration
+                // Determine actual stop time
+                let actualStopDuration = this.playDuration;
+
+                // If surprise stop is active AND surprise time is shorter than normal duration
+                if (surprise.shouldSurprise && surprise.surpriseTime < this.playDuration) {
+                    actualStopDuration = surprise.surpriseTime;
+                    // Set surprise timer
+                    this.surpriseTimer = setTimeout(() => {
+                        console.log('⚡ SURPRISE STOP!');
+                        if (this.onSurpriseStop) {
+                            this.onSurpriseStop();
+                        }
+                        this._songDurationComplete('surprise');
+                    }, surprise.surpriseTime * 1000);
+                }
+
+                // Set normal play timer (might be overridden by surprise)
                 this.playTimer = setTimeout(() => {
-                    this._songDurationComplete();
+                    this._songDurationComplete('complete');
                 }, this.playDuration * 1000);
 
                 // Start progress updates
                 this._startProgressUpdates();
 
-                console.log(`🎵 Playing "${this.currentSong.title}" from ${Utils.formatTime(this.hookStartTime)} for ${this.playDuration}s [${this.currentQuality}]`);
+                const surpriseTag = surprise.shouldSurprise ? ' [SURPRISE PENDING]' : '';
+                console.log(`🎵 Playing "${this.currentSong.title}" from ${Utils.formatTime(this.hookStartTime)} for ${this.playDuration}s [${this.currentQuality}]${surpriseTag}`);
             } else if (attempts < maxAttempts) {
                 setTimeout(checkDuration, 200);
             } else {
@@ -186,7 +217,7 @@ const HookPlayer = {
                 this.isPlaying = true;
 
                 this.playTimer = setTimeout(() => {
-                    this._songDurationComplete();
+                    this._songDurationComplete('complete');
                 }, this.playDuration * 1000);
 
                 this._startProgressUpdates();
@@ -212,7 +243,7 @@ const HookPlayer = {
                 break;
 
             case YT.PlayerState.ENDED:
-                this._songDurationComplete();
+                this._songDurationComplete('ended');
                 break;
 
             case YT.PlayerState.PAUSED:
@@ -245,8 +276,12 @@ const HookPlayer = {
 
     /**
      * Called when the play duration for current song is complete
+     * reason: 'complete' | 'surprise' | 'ended'
      */
-    _songDurationComplete() {
+    _songDurationComplete(reason = 'complete') {
+        // Prevent double-fire
+        if (!this.isPlaying && !this.currentSong) return;
+
         this._clearTimers();
         this.isPlaying = false;
 
@@ -254,9 +289,67 @@ const HookPlayer = {
             this.player.pauseVideo();
         }
 
-        if (this.onSongEnd) {
-            this.onSongEnd('complete');
+        // Start the 10-second break
+        this._startBreak(reason);
+    },
+
+    /**
+     * Start 10-second break between songs
+     * During break: show countdown, pre-render next song
+     */
+    _startBreak(reason) {
+        this.isOnBreak = true;
+        this.breakCountdown = Utils.BREAK_DURATION;
+
+        // Notify break start
+        if (this.onBreakStart) {
+            this.onBreakStart(reason, this.breakCountdown);
         }
+
+        // Countdown tick every second
+        this.breakInterval = setInterval(() => {
+            this.breakCountdown--;
+            
+            if (this.onBreakTick) {
+                this.onBreakTick(this.breakCountdown);
+            }
+
+            if (this.breakCountdown <= 0) {
+                this._endBreak();
+            }
+        }, 1000);
+    },
+
+    /**
+     * End the break and signal the app to play next
+     */
+    _endBreak() {
+        this._clearBreak();
+        this.isOnBreak = false;
+
+        if (this.onBreakEnd) {
+            this.onBreakEnd();
+        }
+
+        // Trigger song end callback to move to next
+        if (this.onSongEnd) {
+            this.onSongEnd('breakComplete');
+        }
+    },
+
+    /**
+     * Clear break timers
+     */
+    _clearBreak() {
+        if (this.breakInterval) {
+            clearInterval(this.breakInterval);
+            this.breakInterval = null;
+        }
+        if (this.breakTimer) {
+            clearTimeout(this.breakTimer);
+            this.breakTimer = null;
+        }
+        this.isOnBreak = false;
     },
 
     /**
@@ -288,6 +381,12 @@ const HookPlayer = {
     togglePlayPause() {
         if (!this.player || !this.currentSong) return;
 
+        // If on break, skip break and play next
+        if (this.isOnBreak) {
+            this._endBreak();
+            return;
+        }
+
         const state = this.player.getPlayerState();
 
         if (state === YT.PlayerState.PLAYING) {
@@ -298,6 +397,10 @@ const HookPlayer = {
                 clearTimeout(this.playTimer);
                 const elapsed = (Date.now() - this.playStartTime) / 1000;
                 this.playDuration = Math.max(0, this.playDuration - elapsed);
+            }
+            if (this.surpriseTimer) {
+                clearTimeout(this.surpriseTimer);
+                this.surpriseTimer = null;
             }
             this._clearProgressTimer();
 
@@ -310,7 +413,7 @@ const HookPlayer = {
             this.playStartTime = Date.now();
 
             this.playTimer = setTimeout(() => {
-                this._songDurationComplete();
+                this._songDurationComplete('complete');
             }, this.playDuration * 1000);
 
             this._startProgressUpdates();
@@ -326,6 +429,7 @@ const HookPlayer = {
      */
     stop() {
         this._clearTimers();
+        this._clearBreak();
         this.isPlaying = false;
         this.currentSong = null;
 
@@ -343,6 +447,10 @@ const HookPlayer = {
             clearTimeout(this.playTimer);
             this.playTimer = null;
         }
+        if (this.surpriseTimer) {
+            clearTimeout(this.surpriseTimer);
+            this.surpriseTimer = null;
+        }
         this._clearProgressTimer();
     },
 
@@ -356,6 +464,8 @@ const HookPlayer = {
     getState() {
         return {
             isPlaying: this.isPlaying,
+            isOnBreak: this.isOnBreak,
+            breakCountdown: this.breakCountdown,
             currentSong: this.currentSong,
             hookStartTime: this.hookStartTime,
             playDuration: this.playDuration,

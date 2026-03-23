@@ -1,6 +1,6 @@
 /* ============================================
    Main Application Controller
-   Queue management, UI updates, interactions
+   Queue management, UI updates, break system
    ============================================ */
 
 const App = {
@@ -37,6 +37,12 @@ const App = {
             this._onPlayerStateChange(state, data, hookTime, duration);
         };
 
+        // Break system callbacks
+        HookPlayer.onBreakStart = (reason, countdown) => this._onBreakStart(reason, countdown);
+        HookPlayer.onBreakTick = (remaining) => this._onBreakTick(remaining);
+        HookPlayer.onBreakEnd = () => this._onBreakEnd();
+        HookPlayer.onSurpriseStop = () => this._onSurpriseStop();
+
         // Setup intersection observer for reveal animations
         this._setupRevealAnimations();
 
@@ -47,10 +53,8 @@ const App = {
      * Initialize network quality monitoring
      */
     _initNetworkMonitor() {
-        // Initial check
         Utils.updateNetworkBadge();
 
-        // Monitor network changes
         const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
         if (conn) {
             conn.addEventListener('change', () => {
@@ -59,7 +63,6 @@ const App = {
             });
         }
 
-        // Also listen for online/offline events
         window.addEventListener('online', () => {
             Utils.updateNetworkBadge();
             Utils.showToast('Back online! 🌐', 'success');
@@ -70,7 +73,6 @@ const App = {
             Utils.showToast('You are offline', 'warning');
         });
 
-        // Periodic check every 30 seconds
         this.networkCheckInterval = setInterval(() => {
             Utils.updateNetworkBadge();
         }, 30000);
@@ -129,7 +131,7 @@ const App = {
 
         // Next
         document.getElementById('nextBtn').addEventListener('click', () => {
-            this.playNext();
+            this._skipBreakAndPlayNext();
         });
 
         // Previous
@@ -147,6 +149,14 @@ const App = {
             this.clearQueue();
         });
 
+        // Skip break button
+        const skipBreakBtn = document.getElementById('skipBreakBtn');
+        if (skipBreakBtn) {
+            skipBreakBtn.addEventListener('click', () => {
+                this._skipBreak();
+            });
+        }
+
         // Keyboard shortcuts
         document.addEventListener('keydown', (e) => {
             if (e.target === urlInput) return;
@@ -157,7 +167,7 @@ const App = {
                     HookPlayer.togglePlayPause();
                     break;
                 case 'ArrowRight':
-                    this.playNext();
+                    this._skipBreakAndPlayNext();
                     break;
                 case 'ArrowLeft':
                     this.playPrevious();
@@ -194,7 +204,7 @@ const App = {
             this._addToQueue(parsed.videoId);
             Utils.showToast('Song added to queue! 🎵', 'success');
 
-            if (!HookPlayer.isPlaying && this.currentIndex === -1) {
+            if (!HookPlayer.isPlaying && !HookPlayer.isOnBreak && this.currentIndex === -1) {
                 this.currentIndex = this.queue.length - 1;
                 this._playCurrent();
             }
@@ -235,7 +245,7 @@ const App = {
 
                                     Utils.showToast(`Added ${playlist.length} songs from playlist! 🎶`, 'success');
 
-                                    if (!HookPlayer.isPlaying && this.currentIndex === -1) {
+                                    if (!HookPlayer.isPlaying && !HookPlayer.isOnBreak && this.currentIndex === -1) {
                                         this.currentIndex = this.queue.length - playlist.length;
                                         this._playCurrent();
                                     }
@@ -247,7 +257,7 @@ const App = {
                                 if (firstVideoId) {
                                     this._addToQueue(firstVideoId);
                                     Utils.showToast('Added 1 song from playlist link', 'info');
-                                    if (!HookPlayer.isPlaying && this.currentIndex === -1) {
+                                    if (!HookPlayer.isPlaying && !HookPlayer.isOnBreak && this.currentIndex === -1) {
                                         this.currentIndex = this.queue.length - 1;
                                         this._playCurrent();
                                     }
@@ -263,7 +273,7 @@ const App = {
                         if (firstVideoId) {
                             this._addToQueue(firstVideoId);
                             Utils.showToast('Playlist not loadable. Added 1 song.', 'warning');
-                            if (!HookPlayer.isPlaying && this.currentIndex === -1) {
+                            if (!HookPlayer.isPlaying && !HookPlayer.isOnBreak && this.currentIndex === -1) {
                                 this.currentIndex = this.queue.length - 1;
                                 this._playCurrent();
                             }
@@ -309,6 +319,9 @@ const App = {
 
         const song = this.queue[this.currentIndex];
         
+        // Hide break overlay
+        this._hideBreakOverlay();
+
         // Show player section
         document.getElementById('playerSection').classList.add('active');
         document.getElementById('playerOverlay').classList.add('hidden');
@@ -321,22 +334,49 @@ const App = {
     },
 
     /**
-     * Play next song in queue
+     * Get next index (respects shuffle)
      */
-    playNext() {
-        if (this.queue.length === 0) return;
+    _getNextIndex() {
+        if (this.queue.length === 0) return -1;
 
         if (this.isShuffleOn) {
             let nextIndex;
             do {
                 nextIndex = Math.floor(Math.random() * this.queue.length);
             } while (nextIndex === this.currentIndex && this.queue.length > 1);
-            this.currentIndex = nextIndex;
-        } else {
-            this.currentIndex = (this.currentIndex + 1) % this.queue.length;
+            return nextIndex;
         }
+        return (this.currentIndex + 1) % this.queue.length;
+    },
 
+    /**
+     * Play next song in queue (called after break completes)
+     */
+    playNext() {
+        if (this.queue.length === 0) return;
+
+        this.currentIndex = this._getNextIndex();
         this._playCurrent();
+    },
+
+    /**
+     * Skip break and play next immediately
+     */
+    _skipBreakAndPlayNext() {
+        if (HookPlayer.isOnBreak) {
+            HookPlayer._clearBreak();
+            this._hideBreakOverlay();
+        }
+        this.playNext();
+    },
+
+    /**
+     * Skip break (called from skip button)
+     */
+    _skipBreak() {
+        if (HookPlayer.isOnBreak) {
+            HookPlayer._endBreak();
+        }
     },
 
     /**
@@ -344,6 +384,10 @@ const App = {
      */
     playPrevious() {
         if (this.queue.length === 0) return;
+        if (HookPlayer.isOnBreak) {
+            HookPlayer._clearBreak();
+            this._hideBreakOverlay();
+        }
         this.currentIndex = (this.currentIndex - 1 + this.queue.length) % this.queue.length;
         this._playCurrent();
     },
@@ -368,6 +412,7 @@ const App = {
 
         document.getElementById('playerSection').classList.remove('active');
         document.getElementById('playerOverlay').classList.remove('hidden');
+        this._hideBreakOverlay();
 
         this._renderQueue();
         this._updateStats();
@@ -408,6 +453,10 @@ const App = {
      * Play a specific song from queue
      */
     _playSongAtIndex(index) {
+        if (HookPlayer.isOnBreak) {
+            HookPlayer._clearBreak();
+            this._hideBreakOverlay();
+        }
         this.currentIndex = index;
         this._playCurrent();
     },
@@ -426,21 +475,125 @@ const App = {
         }
     },
 
+    // ===========================================
+    // Break System UI Handlers
+    // ===========================================
+
     /**
-     * Called when a song ends
+     * Called when break starts after song ends
      */
-    _onSongEnd(reason) {
-        this.stats.songsPlayed++;
+    _onBreakStart(reason, countdown) {
         this._updateVisualizer(false);
         
+        // Determine next song info for preview
+        const nextIndex = this._getNextIndex();
+        const nextSong = this.queue[nextIndex];
+
+        // Show break overlay
+        const overlay = document.getElementById('breakOverlay');
+        const countdownEl = document.getElementById('breakCountdown');
+        const nextThumb = document.getElementById('breakNextThumb');
+        const nextTitle = document.getElementById('breakNextTitle');
+        const breakReason = document.getElementById('breakReason');
+
+        if (overlay) {
+            overlay.classList.add('active');
+            
+            if (countdownEl) countdownEl.textContent = countdown;
+            
+            if (nextSong) {
+                if (nextThumb) nextThumb.src = nextSong.thumbnail;
+                if (nextTitle) nextTitle.textContent = nextSong.title;
+            }
+
+            if (breakReason) {
+                if (reason === 'surprise') {
+                    breakReason.textContent = '⚡ Surprise Stop!';
+                    breakReason.classList.add('surprise');
+                } else {
+                    breakReason.textContent = '✨ Song Complete';
+                    breakReason.classList.remove('surprise');
+                }
+            }
+        }
+
+        // Update progress bar to full
         document.getElementById('progressFill').style.width = '100%';
         document.getElementById('progressGlow').style.width = '100%';
 
-        setTimeout(() => {
+        const reasonLabel = reason === 'surprise' ? '⚡ Surprise!' : '✨ Complete';
+        Utils.showToast(`${reasonLabel} Next song in ${countdown}s...`, 'info');
+    },
+
+    /**
+     * Called every second during break
+     */
+    _onBreakTick(remaining) {
+        const countdownEl = document.getElementById('breakCountdown');
+        const ring = document.getElementById('breakRing');
+        
+        if (countdownEl) {
+            countdownEl.textContent = remaining;
+            countdownEl.classList.add('tick');
+            setTimeout(() => countdownEl.classList.remove('tick'), 300);
+        }
+
+        if (ring) {
+            const progress = 1 - (remaining / Utils.BREAK_DURATION);
+            const circumference = 2 * Math.PI * 54;
+            ring.style.strokeDashoffset = circumference * (1 - progress);
+        }
+    },
+
+    /**
+     * Called when break ends
+     */
+    _onBreakEnd() {
+        this._hideBreakOverlay();
+    },
+
+    /**
+     * Hide the break overlay
+     */
+    _hideBreakOverlay() {
+        const overlay = document.getElementById('breakOverlay');
+        if (overlay) {
+            overlay.classList.remove('active');
+        }
+    },
+
+    /**
+     * Called when surprise stop happens
+     */
+    _onSurpriseStop() {
+        // Flash the surprise badge
+        const badge = document.getElementById('surpriseBadge');
+        if (badge) {
+            badge.classList.add('flash');
+            setTimeout(() => badge.classList.remove('flash'), 2000);
+        }
+    },
+
+    /**
+     * Called when a song ends (after break completes)
+     */
+    _onSongEnd(reason) {
+        if (reason === 'breakComplete') {
+            // Break is over, play next
+            this.stats.songsPlayed++;
+            this._updateStats();
+            
             if (this.queue.length > 0) {
                 this.playNext();
             }
-        }, 800);
+        } else if (reason === 'error') {
+            // Skip to next on error
+            this.stats.songsPlayed++;
+            if (this.queue.length > 0) {
+                this.playNext();
+            }
+        }
+        // For 'complete', 'surprise', 'ended' — break system handles it
     },
 
     /**
@@ -461,6 +614,16 @@ const App = {
                 if (data.quality) {
                     document.getElementById('qualityInfo').innerHTML = 
                         `<span class="meta-icon">📶</span> Quality: ${data.quality}`;
+                }
+
+                // Show surprise indicator if applicable
+                const surpriseBadge = document.getElementById('surpriseBadge');
+                if (surpriseBadge) {
+                    if (data.isSurprise) {
+                        surpriseBadge.classList.add('active');
+                    } else {
+                        surpriseBadge.classList.remove('active');
+                    }
                 }
 
                 document.getElementById('playIcon').style.display = 'none';
@@ -585,7 +748,6 @@ const App = {
         const totalPlayedEl = document.getElementById('totalPlayed');
         const queueSizeEl = document.getElementById('queueSize');
         
-        // Use animated counters for numbers
         Utils.animateCounter(totalPlayedEl, this.stats.songsPlayed);
         Utils.animateCounter(queueSizeEl, this.queue.length);
         
