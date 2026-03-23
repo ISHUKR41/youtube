@@ -20,8 +20,11 @@ const App = {
         // Create background particles
         Utils.createParticles();
 
-        // Initialize YouTube player
+        // Initialize YouTube player (also detects quality)
         await HookPlayer.init();
+
+        // Update network indicator
+        this._updateNetworkIndicator();
 
         // Set up event handlers
         this._setupEventListeners();
@@ -510,6 +513,35 @@ const App = {
         const div = document.createElement('div');
         div.textContent = str;
         return div.innerHTML;
+    },
+
+    /**
+     * Update network quality indicator
+     */
+    _updateNetworkIndicator() {
+        const qualityEl = document.getElementById('networkQuality');
+        const quality = HookPlayer.videoQuality;
+
+        const qualityMap = {
+            'hd720': { text: 'HD Quality (720p)', class: 'quality-hd' },
+            'hd1080': { text: 'Full HD (1080p)', class: 'quality-hd' },
+            'large': { text: 'Good Quality (480p)', class: 'quality-good' },
+            'medium': { text: 'Medium (360p)', class: 'quality-medium' },
+            'small': { text: 'Low Quality (144p)', class: 'quality-low' }
+        };
+
+        const info = qualityMap[quality] || { text: 'Auto Quality', class: '' };
+
+        qualityEl.textContent = info.text;
+        qualityEl.className = 'network-quality ' + info.class;
+
+        // Monitor network changes
+        Utils.onNetworkChange((newQuality) => {
+            const newInfo = qualityMap[newQuality] || { text: 'Auto Quality', class: '' };
+            qualityEl.textContent = newInfo.text;
+            qualityEl.className = 'network-quality ' + newInfo.class;
+            Utils.showToast(`Quality changed: ${newInfo.text}`, 'info');
+        });
     }
 };
 
