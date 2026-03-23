@@ -15,12 +15,27 @@ const HookPlayer = {
     isPlaying: false,
     onSongEnd: null,      // callback when song ends
     onStateChange: null,  // callback for state changes
+    videoQuality: 'large', // Default quality
 
     /**
      * Initialize the YouTube IFrame API
      */
     init() {
-        return new Promise((resolve) => {
+        return new Promise(async (resolve) => {
+            // Detect optimal video quality based on network speed
+            this.videoQuality = await Utils.detectVideoQuality();
+            console.log(`🎬 Initial video quality: ${this.videoQuality}`);
+
+            // Monitor network changes
+            Utils.onNetworkChange((newQuality) => {
+                this.videoQuality = newQuality;
+                console.log(`📶 Network changed, new quality: ${newQuality}`);
+                // Apply quality to current player if playing
+                if (this.player && this.isPlaying) {
+                    this._applyQuality();
+                }
+            });
+
             // Load the YouTube IFrame API script
             const tag = document.createElement('script');
             tag.src = 'https://www.youtube.com/iframe_api';
@@ -41,7 +56,8 @@ const HookPlayer = {
                         'modestbranding': 1,
                         'rel': 0,
                         'showinfo': 0,
-                        'playsinline': 1
+                        'playsinline': 1,
+                        'hd': 1
                     },
                     events: {
                         'onReady': () => {
@@ -50,7 +66,10 @@ const HookPlayer = {
                             resolve();
                         },
                         'onStateChange': (event) => this._handleStateChange(event),
-                        'onError': (event) => this._handleError(event)
+                        'onError': (event) => this._handleError(event),
+                        'onPlaybackQualityChange': (event) => {
+                            console.log(`Quality changed to: ${event.data}`);
+                        }
                     }
                 });
             };
@@ -130,6 +149,9 @@ const HookPlayer = {
                 this.player.playVideo();
                 this.playStartTime = Date.now();
                 this.isPlaying = true;
+
+                // Apply adaptive quality
+                this._applyQuality();
 
                 // Notify state change
                 if (this.onStateChange) {
@@ -347,5 +369,19 @@ const HookPlayer = {
             hookStartTime: this.hookStartTime,
             playDuration: this.playDuration
         };
+    },
+
+    /**
+     * Apply current quality setting to the player
+     */
+    _applyQuality() {
+        if (!this.player || !this.player.setPlaybackQuality) return;
+
+        try {
+            this.player.setPlaybackQuality(this.videoQuality);
+            console.log(`✅ Applied quality: ${this.videoQuality}`);
+        } catch (error) {
+            console.warn('Could not set playback quality:', error);
+        }
     }
 };

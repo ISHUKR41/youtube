@@ -71,22 +71,38 @@ const Utils = {
 
     /**
      * Get random play duration based on weighted probability
-     * 50% → 50 seconds
-     * 10% → 10 seconds
-     * 10% → 20 seconds
-     * 10% → 30 seconds
-     * 10% → 40 seconds
-     * 10% → 60+ seconds (90 seconds)
+     * 50% → 50-60 seconds
+     * 10% → 10-15 seconds
+     * 10% → 20-30 seconds
+     * 10% → 30-40 seconds
+     * 10% → 40-50 seconds
+     * 10% → 80-95 seconds
      */
     getRandomDuration() {
         const rand = Math.random() * 100;
-        
-        if (rand < 50) return { duration: 50, label: '50s' };
-        if (rand < 60) return { duration: 10, label: '10s' };
-        if (rand < 70) return { duration: 20, label: '20s' };
-        if (rand < 80) return { duration: 30, label: '30s' };
-        if (rand < 90) return { duration: 40, label: '40s' };
-        return { duration: 90, label: '60s+' };
+
+        if (rand < 50) {
+            const duration = 50 + Math.floor(Math.random() * 11); // 50-60
+            return { duration, label: `${duration}s` };
+        }
+        if (rand < 60) {
+            const duration = 10 + Math.floor(Math.random() * 6); // 10-15
+            return { duration, label: `${duration}s` };
+        }
+        if (rand < 70) {
+            const duration = 20 + Math.floor(Math.random() * 11); // 20-30
+            return { duration, label: `${duration}s` };
+        }
+        if (rand < 80) {
+            const duration = 30 + Math.floor(Math.random() * 11); // 30-40
+            return { duration, label: `${duration}s` };
+        }
+        if (rand < 90) {
+            const duration = 40 + Math.floor(Math.random() * 11); // 40-50
+            return { duration, label: `${duration}s` };
+        }
+        const duration = 80 + Math.floor(Math.random() * 16); // 80-95
+        return { duration, label: `${duration}s` };
     },
 
     /**
@@ -201,7 +217,7 @@ const Utils = {
             particle.className = 'particle';
             const size = Math.random() * 6 + 2;
             const color = colors[Math.floor(Math.random() * colors.length)];
-            
+
             particle.style.cssText = `
                 width: ${size}px;
                 height: ${size}px;
@@ -210,8 +226,69 @@ const Utils = {
                 animation-duration: ${15 + Math.random() * 20}s;
                 animation-delay: ${Math.random() * 10}s;
             `;
-            
+
             container.appendChild(particle);
+        }
+    },
+
+    /**
+     * Detect network speed and return appropriate video quality
+     * Returns quality setting for YouTube player
+     */
+    async detectVideoQuality() {
+        try {
+            // Check if Network Information API is available
+            if ('connection' in navigator) {
+                const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+                const effectiveType = connection?.effectiveType;
+
+                // Map connection type to quality
+                const qualityMap = {
+                    'slow-2g': 'small',      // 144p
+                    '2g': 'small',           // 144p
+                    '3g': 'medium',          // 360p
+                    '4g': 'large',           // 480p
+                    '5g': 'hd720'            // 720p
+                };
+
+                if (effectiveType && qualityMap[effectiveType]) {
+                    console.log(`📶 Network: ${effectiveType} → Quality: ${qualityMap[effectiveType]}`);
+                    return qualityMap[effectiveType];
+                }
+            }
+
+            // Fallback: Test download speed
+            const startTime = Date.now();
+            const response = await fetch('https://www.youtube.com/favicon.ico?' + Math.random(), {
+                cache: 'no-store'
+            });
+            await response.blob();
+            const endTime = Date.now();
+            const duration = endTime - startTime;
+
+            // Estimate based on download time
+            if (duration < 100) return 'hd720';      // Fast connection
+            if (duration < 200) return 'large';      // Good connection
+            if (duration < 400) return 'medium';     // Medium connection
+            return 'small';                          // Slow connection
+        } catch (error) {
+            console.warn('Quality detection failed, using default');
+            return 'large'; // Default to 480p
+        }
+    },
+
+    /**
+     * Monitor network changes and update quality
+     */
+    onNetworkChange(callback) {
+        if ('connection' in navigator) {
+            const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+            if (connection) {
+                connection.addEventListener('change', async () => {
+                    const quality = await this.detectVideoQuality();
+                    callback(quality);
+                });
+            }
         }
     }
 };
